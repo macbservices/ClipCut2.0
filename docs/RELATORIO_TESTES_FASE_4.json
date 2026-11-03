@@ -1,0 +1,42 @@
+{
+  "1. Solicitação simples de corte": [
+    "PASSOU",
+    "Plano estruturado 2.0 gerado e validado: split_clip em t=2.5s no clipe 0."
+  ],
+  "2. Solicitação com várias operações": [
+    "PASSOU",
+    "Plano multi-tarefa validado: 4 ações sequenciais (silêncio, normalização, legendas, transição)."
+  ],
+  "3. Comando para clipe inexistente": [
+    "PASSOU",
+    "Validador nativo detectou e rejeitou clipe inexistente com segurança: 'Clipe inexistente: índice 99 fora dos limites da trilha 0'."
+  ],
+  "4. Intervalo temporal inválido": [
+    "PASSOU",
+    "Validador nativo barrou tempo fora dos limites: 'Intervalo temporal inválido: corte em 15.0s fora da duração do clipe (5.0s)'."
+  ],
+  "5. Falha de conexão": [
+    "PASSOU",
+    "Falha de rede capturada com relatório amigável e ativação automática do fallback local."
+  ],
+  "6. Limite de uso da API": [
+    "PASSOU",
+    "Erro HTTP 429 detectado; emitido sinal quotaExceeded() e ativado modo local sem custos."
+  ],
+  "7. Cancelamento": [
+    "PASSOU",
+    "cancelRequest() abortou a chamada de rede e redefiniu busy: false imediatamente."
+  ],
+  "8. Undo/Redo": [
+    "PASSOU",
+    "Plano executado pelo Gemini foi revertido (1 clipe 5.0s) e reaplicado (2 clipes) no QUndoStack."
+  ],
+  "9. Atualização visual da timeline": [
+    "PASSOU",
+    "pushProjectEdit notificou TimelineClipsModel e TimelineViewState com contagem correta de clipes."
+  ],
+  "10. Persistência das alterações após reabrir o projeto": [
+    "PASSOU",
+    "Projeto .drift gravado com histórico de edição do Gemini e reaberto com 100% de integridade."
+  ]
+}

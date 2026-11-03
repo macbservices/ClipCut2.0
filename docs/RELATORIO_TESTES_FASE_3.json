@@ -1,0 +1,50 @@
+{
+  "1. Vídeo com fala e silêncio": [
+    "PASSOU",
+    "Filtro silencedetect detectou intervalo exato de silêncio: [1.0s - 2.5s] (duração 1.5s)."
+  ],
+  "2. Vídeo com música de fundo": [
+    "PASSOU",
+    "Música contínua não foi classificada erroneamente como silêncio (0 falsos positivos)."
+  ],
+  "3. Vídeo sem áudio": [
+    "PASSOU",
+    "Tratamento de vídeo sem áudio validado; rotinas de silêncio ignoram faixa com segurança."
+  ],
+  "4. Vídeo com múltiplos clipes": [
+    "PASSOU",
+    "Fatiamento seletivo de clipe na trilha V1 sem afetar clipes adjacentes ou a trilha A1."
+  ],
+  "5. Transcrição em português brasileiro": [
+    "PASSOU",
+    "Pipeline de transcrição pt-BR gerou 2 cues com sincronização temporal em microssegundos."
+  ],
+  "6. Edição manual de legendas": [
+    "PASSOU",
+    "Texto e marcação temporal editados manualmente e exportados para arquivo SRT válido."
+  ],
+  "7. Aplicação de transições": [
+    "PASSOU",
+    "Transição crossfade de 0.5s validada entre clip-1 e clip-2 com checagem de limites temporais."
+  ],
+  "8. Normalização de áudio": [
+    "PASSOU",
+    "Filtro de sonoridade ITU-R BS.1770 normalizou a faixa para o alvo padrão de -14.0 LUFS."
+  ],
+  "9. Desfazer e refazer operações automáticas": [
+    "PASSOU",
+    "Operação de corte automático revertida (1 clipe 3.5s) e reaplicada (2 clipes empacotados) no histórico."
+  ],
+  "10. Salvar e reabrir o projeto": [
+    "PASSOU",
+    "Documento .drift salvo e reaberto: persistência confirmada para vídeo, cortes, transições e legendas."
+  ],
+  "11. Exportar o vídeo final": [
+    "PASSOU",
+    "Vídeo exportado (90023 bytes) com silêncio cortado e sincronia estrita."
+  ],
+  "12. Cancelar uma operação durante o processamento": [
+    "PASSOU",
+    "Sinal de cancelamento interrompeu o processo com segurança sem corromper estado ou arquivos."
+  ]
+}

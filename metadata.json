@@ -1,0 +1,6 @@
+{
+  "name": "Clip Cut 2.0",
+  "description": "Desktop video editor with hybrid AI automated cutting and manual timeline editing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

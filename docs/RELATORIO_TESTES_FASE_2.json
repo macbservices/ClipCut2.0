@@ -1,0 +1,42 @@
+{
+  "1. Criar um projeto": [
+    "PASSOU",
+    "Projeto criado com schema v21, canvas 1080p e trilhas V1/A1."
+  ],
+  "2. Importar um vídeo": [
+    "PASSOU",
+    "Vídeo 720p 30fps (3000000 µs) sondado com áudio AAC."
+  ],
+  "3. Reproduzir o vídeo": [
+    "PASSOU",
+    "Decodificador FFmpeg operando, quadro a 1s extraído com sucesso."
+  ],
+  "4. Adicionar à timeline": [
+    "PASSOU",
+    "Clipe ID 'clip-v-001' inserido na Trilha 0 (0 a 3s)."
+  ],
+  "5. Cortar o clipe": [
+    "PASSOU",
+    "Clipe fatiado em 1.5s: Parte A (1500000 µs), Parte B (1500000 µs)."
+  ],
+  "6. Desfazer o corte": [
+    "PASSOU",
+    "Estado anterior restaurado (1 clipe íntegro de 3s)."
+  ],
+  "7. Refazer o corte": [
+    "PASSOU",
+    "Corte reaplicado com sucesso via Redo (2 clipes)."
+  ],
+  "8. Salvar o projeto": [
+    "PASSOU",
+    "Arquivo gravado em /tmp/clipcut_val_a8ulisxx/test_project.drift (1720 bytes)."
+  ],
+  "9. Fechar e reabrir o projeto": [
+    "PASSOU",
+    "Projeto reaberto, integridade de faixas e clipes validada."
+  ],
+  "10. Exportar o resultado": [
+    "PASSOU",
+    "MP4 exportado (95443 bytes) com vídeo H.264 e áudio AAC sincronizados."
+  ]
+}

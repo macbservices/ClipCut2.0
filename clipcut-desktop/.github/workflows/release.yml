@@ -1,0 +1,340 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release readiness
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches CMakeLists.txt version
+        id: version
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          cmake_version="$(grep -oP '^project\(Drift VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)"
+          if [ "${tag_version}" != "${cmake_version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (version ${tag_version}) does not match CMakeLists.txt's project version (${cmake_version})"
+            exit 1
+          fi
+          echo "version=${tag_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check the Arch package version matches too
+        shell: bash
+        run: |
+          pkgver="$(grep -oP '^pkgver=\K.*' packaging/arch/PKGBUILD)"
+          if [ "${pkgver}" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::packaging/arch/PKGBUILD pkgver=${pkgver} does not match ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Check Flatpak release notes exist for this version
+        run: python3 scripts/extract_release_notes.py "${{ steps.version.outputs.version }}" release-notes.md
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  package:
+    name: Package
+    needs: verify
+    uses: ./.github/workflows/package.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
+      android_identity: release
+    secrets: inherit
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: [verify, package]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Assemble release notes
+        run: |
+          cp dist/release-notes/release-notes.md notes.md
+          cat >> notes.md <<'EOF'
+
+          ## Installing
+
+          - **AppImage** (Linux, any distro): `chmod +x Drift-*-x86_64.AppImage && ./Drift-*-x86_64.AppImage`
+            (`Drift-*-aarch64.AppImage` on ARM64 machines)
+          - **Windows installer**: run `Drift-Setup-*-x64.exe` (`Drift-Setup-*-arm64.exe` on Windows on ARM)
+          - **Windows portable**: extract `Drift-Portable-*-x64.zip` (or `-arm64.zip`) anywhere and run `drift.exe` from
+            the `Drift` folder inside it. Nothing is installed, but settings and addons are still
+            stored per-user under `%APPDATA%\Drift`.
+          - **macOS**: open `Drift-*-arm64.dmg` (Apple Silicon) or `Drift-*-x86_64.dmg` (Intel) and drag Drift to Applications. The
+            app is signed ad-hoc rather than notarised, so the first launch needs right-click →
+            Open, or `xattr -dr com.apple.quarantine /Applications/Drift.app`.
+          - **Arch Linux**: `sudo pacman -U drift-*-x86_64.pkg.tar.zst` (Arch Linux ARM: `sudo pacman -U drift-*-aarch64.pkg.tar.zst`)
+          - **Flatpak** (`x86_64` and `aarch64` bundles): requires `flatpak` with the Flathub remote added (`flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo`), then `flatpak install --user Drift-*-<arch>.flatpak`
+          - **Android**: install the APK for your ABI (`arm64-v8a` on virtually all phones; `x86_64` for emulators). Sideload with `adb install Drift-*-arm64-v8a.apk`.
+
+          Fonts, stickers, speech models and GPU/CPU acceleration runtimes are not bundled — install
+          the ones you want from the Addon Manager in the app header.
+          EOF
+
+      # The in-app updater falls back to this when GitHub's API does not give it an asset digest,
+      # and refuses to install a file it has no hash for.
+      - name: Write SHA256SUMS
+        run: |
+          sha256sum \
+            dist/linux-appimage-*/*.AppImage \
+            dist/windows-installer-*/*.exe \
+            dist/windows-portable-*/*.zip \
+            dist/macos-dmg-*/*.dmg \
+            dist/arch-package-*/*.pkg.tar.zst \
+            dist/flatpak-bundle-*/*.flatpak \
+            dist/android-apk-*/*.apk \
+            | sed -E 's#  .*/#  #' > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Drift ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            dist/linux-appimage-*/*.AppImage \
+            dist/linux-appimage-*/*.AppImage.zsync \
+            dist/windows-installer-*/*.exe \
+            dist/windows-portable-*/*.zip \
+            dist/macos-dmg-*/*.dmg \
+            dist/arch-package-*/*.pkg.tar.zst \
+            dist/flatpak-bundle-*/*.flatpak \
+            dist/android-apk-*/*.apk \
+            SHA256SUMS
+
+      - name: Update Homebrew Tap
+        continue-on-error: true
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret is not set; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_ARM=$(ls dist/macos-dmg-arm64/Drift-*-arm64.dmg 2>/dev/null | head -n 1)
+          DMG_INTEL=$(ls dist/macos-dmg-x86_64/Drift-*-x86_64.dmg 2>/dev/null | head -n 1)
+          if [ -z "$DMG_ARM" ] || [ ! -f "$DMG_ARM" ]; then
+            echo "::warning::Apple Silicon DMG not found in dist/macos-dmg-arm64/; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          SHA256=$(sha256sum "$DMG_ARM" | awk '{print $1}')
+          SHA256_INTEL=""
+          if [ -n "$DMG_INTEL" ] && [ -f "$DMG_INTEL" ]; then
+            SHA256_INTEL=$(sha256sum "$DMG_INTEL" | awk '{print $1}')
+          fi
+
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/CutWire-Studios/homebrew-tap.git" tap
+          cd tap
+
+          sed -i.bak -E "s/version \"[0-9.]+\"/version \"${VERSION}\"/" Casks/drift.rb
+          # A single `sha256 "..."` is the Apple Silicon build. A per-arch cask
+          # (`sha256 arm: "...", intel: "..."`) gets both hashes; the url must then pick the
+          # arch itself (e.g. `Drift-#{version}-#{arch}.dmg` with `arch arm: "arm64", intel: "x86_64"`).
+          if grep -qE 'sha256 arm:' Casks/drift.rb; then
+            if [ -z "$SHA256_INTEL" ]; then
+              echo "::warning::Intel DMG not found; skipping Homebrew tap update."
+              exit 0
+            fi
+            sed -i.bak -E "s/(sha256 arm: *\")[a-f0-9]{64}/\1${SHA256}/; s/(intel: *\")[a-f0-9]{64}/\1${SHA256_INTEL}/" Casks/drift.rb
+            # The tap kept Intel out until a release shipped an Intel DMG; this is that release.
+            sed -i.bak -E '/^\s*depends_on arch: :arm64\s*$/d' Casks/drift.rb
+          else
+            sed -i.bak -E "s/sha256 \"[a-f0-9]{64}\"/sha256 \"${SHA256}\"/" Casks/drift.rb
+          fi
+          rm -f Casks/drift.rb.bak
+          # Drift updates itself in place, so brew should not treat the cask's version as stale.
+          if ! grep -qE '^\s*auto_updates true' Casks/drift.rb; then
+            sed -i -E '/^\s*sha256 "/a\  auto_updates true' Casks/drift.rb
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/drift.rb
+          if git diff --staged --quiet; then
+            echo "No changes to Casks/drift.rb; tap is already up to date."
+          else
+            git commit -m "drift ${VERSION}"
+            git push origin main
+          fi
+
+      # Posts a branded embed card to CutWire Discord #releases. This lives here
+      # rather than in a `release: published` workflow because releases created
+      # with GITHUB_TOKEN do not trigger further workflow runs.
+      - name: Notify Discord
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
+          python3 <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+          if not webhook:
+              raise SystemExit("DISCORD_WEBHOOK_URL secret is not set")
+
+          with open("release.json", encoding="utf-8") as f:
+              release = json.load(f)
+
+          EMBED_DESC_LIMIT = 4096
+          DRIFT_GOLD = 0xFCAD01
+          ICON = "https://raw.githubusercontent.com/CutWire-Studios/Drift/main/Drift_icon.png"
+
+          def github_md_to_discord(text: str) -> str:
+              lines = []
+              for line in text.splitlines():
+                  if line.startswith("### "):
+                      lines.append(f"**{line[4:].strip()}**")
+                  elif line.startswith("## "):
+                      lines.append(f"**{line[3:].strip()}**")
+                  elif line.startswith("# "):
+                      lines.append(f"**{line[2:].strip()}**")
+                  else:
+                      lines.append(line)
+              return "\n".join(lines).strip()
+
+          def clamp(text: str, limit: int) -> str:
+              if len(text) <= limit:
+                  return text
+              cut = text[: limit - 1]
+              if "\n" in cut:
+                  cut = cut.rsplit("\n", 1)[0]
+              return cut.rstrip() + "…"
+
+          def asset_label(name: str) -> str | None:
+              n = name.lower()
+              if "debug" in n or n.endswith(".zsync"):
+                  return None
+              if n.endswith(".apk"):
+                  if "arm64" in n:
+                      return "Android (arm64)"
+                  if "armeabi" in n or "armv7" in n:
+                      return "Android (armeabi-v7a)"
+                  if "x86_64" in n:
+                      return "Android (x86_64)"
+                  return "Android"
+              is_arm = "arm64" in n or "aarch64" in n
+              if n.endswith(".appimage"):
+                  return "Linux AppImage (aarch64)" if is_arm else "Linux AppImage (x86_64)"
+              if n.endswith(".dmg"):
+                  return "macOS (Apple Silicon)" if is_arm else "macOS (Intel)"
+              if "portable" in n and n.endswith(".zip"):
+                  return "Windows portable (arm64)" if is_arm else "Windows portable (x64)"
+              if "setup" in n and n.endswith(".exe"):
+                  return "Windows installer (arm64)" if is_arm else "Windows installer (x64)"
+              if n.endswith(".flatpak"):
+                  return "Flatpak bundle (aarch64)" if is_arm else "Flatpak bundle (x86_64)"
+              if n.endswith(".pkg.tar.zst"):
+                  return "Arch Linux (aarch64)" if is_arm else "Arch Linux (x86_64)"
+              return name
+
+          tag = release.get("tag_name") or ""
+          title = release.get("name") or f"Drift {tag}"
+          url = release["html_url"]
+          notes = github_md_to_discord(release.get("body") or "")
+          description = clamp(notes or "New Drift release.", EMBED_DESC_LIMIT)
+
+          downloads = [
+              "[All assets](" + url + ")",
+              "[Flathub](https://flathub.org/apps/org.cutwire.Drift)",
+          ]
+          for asset in release.get("assets") or []:
+              label = asset_label(asset.get("name") or "")
+              if not label:
+                  continue
+              downloads.append(f"[{label}]({asset['browser_download_url']})")
+
+          payload = {
+              "username": "Drift",
+              "avatar_url": ICON,
+              "allowed_mentions": {"parse": []},
+              "embeds": [
+                  {
+                      "title": title,
+                      "url": url,
+                      "description": description,
+                      "color": DRIFT_GOLD,
+                      "timestamp": release.get("published_at"),
+                      "author": {
+                          "name": "CutWire Studios",
+                          "url": "https://github.com/CutWire-Studios/Drift",
+                          "icon_url": ICON,
+                      },
+                      "thumbnail": {"url": ICON},
+                      "fields": [
+                          {
+                              "name": "Downloads",
+                              "value": clamp("\n".join(downloads), 1024),
+                          }
+                      ],
+                      "footer": {"text": f"GitHub · {tag}"},
+                  }
+              ],
+          }
+
+          req = urllib.request.Request(
+              webhook.split("?")[0] + "?wait=true",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "CutWire-Drift-Release-Notify",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  msg = json.load(resp)
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode("utf-8", errors="replace")
+              raise SystemExit(f"Discord webhook failed HTTP {exc.code}: {body}") from exc
+
+          print(f"Posted Discord message {msg.get('id')} in channel {msg.get('channel_id')}")
+          PY
+
+  # GITHUB_TOKEN may dispatch workflow_dispatch runs. Both workflows are loaded from main
+  # (installer/msix only exists there) and build the tag through their `ref` input.
+  store-builds:
+    name: Dispatch store builds
+    runs-on: ubuntu-latest
+    needs: release
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Play Store AAB and Microsoft Store MSIX
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run playstore-aab.yml -R "$GITHUB_REPOSITORY" --ref main -f ref="$GITHUB_REF_NAME"
+          gh workflow run msstore.yml -R "$GITHUB_REPOSITORY" --ref main -f ref="$GITHUB_REF_NAME"
